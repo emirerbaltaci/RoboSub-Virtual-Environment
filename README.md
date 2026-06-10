@@ -42,7 +42,7 @@ For questions or clarifications please contact roboticsarena@mathworks.com
 
 The model has the following dependencies
 
-* [MATLAB® 2025b](https://www.mathworks.com/products/new_products/latest_features.html)
+* [MATLAB® 2026a](https://www.mathworks.com/products/new_products/latest_features.html)
 * [Simulink&reg;](https://www.mathworks.com/products/simulink.html)
 * [Robotics Systems Toolbox&trade;](https://www.mathworks.com/products/robotics.html)
 * [ROS Toolbox](https://www.mathworks.com/products/ros.html)
