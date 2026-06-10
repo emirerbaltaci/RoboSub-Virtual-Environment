@@ -27,7 +27,7 @@ The gifs above show the results of the dynamics for various scenarios such as ro
 To get started, follow these steps
 
 
-* Download the environment executable from [this link](https://mathworks-my.sharepoint.com/:f:/p/abshanka/IgAVU4YM8sTWTJGqBX9ymXzJAShROga7U6-v4d0ud20T85E?e=WISkc3)
+* Download the environment executable from [this link](https://mathworks-my.sharepoint.com/:f:/p/abshanka/IgCwtZ3QH8CETaui4CfMeeYQATDNLDU143_h6m5vgwSJJNc?e=jPaBXr)
 * Clone the repo to your local folder. Open the project file - virtual_robosub.prj.
 * Navigate to the visualization block under the masked subsystem (AUV). You can open it by right clicking on the subsystem and choose 'Look under mask' or use the shortcut ctrl+U.
 * Open Simulation 3D Scene configuration block and in the Project Folder parameter, enter the location of the executable (yourFolder/RoboSub_pool_25b/Windows/AutoVrtlEnv.exe) downloaded in step 1(note: the first time you open it, it'll show an error, you can ignore it and press 'ok' as it will be resovled after adding the location of the executable file)
