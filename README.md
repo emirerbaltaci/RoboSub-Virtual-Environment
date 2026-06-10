@@ -1,7 +1,7 @@
 # RoboSub Virtual Environment
 
 
-This repository contains the Simulink&reg; model and associated files for a robosub virtual environment. [RoboSub](https://robosub.org/) is an annual autonomous underwater vehicle (AUV) competition held by [RoboNation](https://robonation.org/). The model allows the user to define propoerties of their AUV such as mass, volume, drag coefficients, thruster configuration, etc. and simulates the hydrostatic and hydrodynamics forces acting on the AUV. It also simulates sensor readings and actuator control. This allows users to simulate tasks seen in RoboSub such as navigating through a gate, octagon surface, torpedo and dropper marker tasks. The model uses MATLAB&reg; 2025b and Unreal Engine&reg; 5.3.
+This repository contains the Simulink&reg; model and associated files for a robosub virtual environment. [RoboSub](https://robosub.org/) is an annual autonomous underwater vehicle (AUV) competition held by [RoboNation](https://robonation.org/). The model allows the user to define propoerties of their AUV such as mass, volume, drag coefficients, thruster configuration, etc. and simulates the hydrostatic and hydrodynamics forces acting on the AUV. It also simulates sensor readings and actuator control. This allows users to simulate tasks seen in RoboSub such as navigating through a gate, octagon surface, torpedo and dropper marker tasks. The model uses MATLAB&reg; 2025b and Unreal Engine&reg; 5.4.
 
 | Simulink model | Virtual environment |
 | :------------: | :-----------------: |
@@ -27,10 +27,10 @@ The gifs above show the results of the dynamics for various scenarios such as ro
 To get started, follow these steps
 
 
-* Download the environment executable from [this link](https://mathworks-my.sharepoint.com/:f:/p/abshanka/IgAVU4YM8sTWTJGqBX9ymXzJAShROga7U6-v4d0ud20T85E?e=WISkc3)
+* Download the environment executable from [this link](https://mathworks-my.sharepoint.com/:f:/p/abshanka/IgA20BXu-6xCQJWPYQzKvzZCAbvPi9l5FKsZq9PXRBkRWPk?e=6U88ZJ)
 * Clone the repo to your local folder. Open the project file - virtual_robosub.prj.
 * Navigate to the visualization block under the masked subsystem (AUV). You can open it by right clicking on the subsystem and choose 'Look under mask' or use the shortcut ctrl+U.
-* Open Simulation 3D Scene configuration block and in the Project Folder parameter, enter the location of the executable (yourFolder/RoboSub_pool_25b/Windows/AutoVrtlEnv.exe) downloaded in step 1(note: the first time you open it, it'll show an error, you can ignore it and press 'ok' as it will be resovled after adding the location of the executable file)
+* Open Simulation 3D Scene configuration block and in the Project Folder parameter, enter the location of the executable (yourFolder/robosub26_UE54/Windows/AutoVrtlEnv.exe) downloaded in step 1(note: the first time you open it, it'll show an error, you can ignore it and press 'ok' as it will be resovled after adding the location of the executable file)
 * The AUV mask is filled with some default values but these can be customized to match the model required
 * Press the 'Run' button to run the simulation. The simulation stop time is set to infinity which means the user decides when to stop.
 
