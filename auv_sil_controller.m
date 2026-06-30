@@ -6,37 +6,30 @@ function setup(block)
     block.NumInputPorts  = 2;
     block.NumOutputPorts = 5;
     
-    % Input 1: Sensors (13 elements now, including DVL!)
     block.InputPort(1).Dimensions = 13;
-    block.InputPort(1).DatatypeID = -1; % Inherit
+    block.InputPort(1).DatatypeID = -1; 
     block.InputPort(1).DirectFeedthrough = false;
     
-    % Input 2: UDP Command (4x1 vector: [X, Y, Z, Yaw])
     block.InputPort(2).Dimensions = 4;
-    block.InputPort(2).DatatypeID = 0; % double
+    block.InputPort(2).DatatypeID = 0; 
     block.InputPort(2).DirectFeedthrough = false;
     
-    % Output 1: PWMs (8 elements)
     block.OutputPort(1).Dimensions = 8;
-    block.OutputPort(1).DatatypeID = 0; % double
+    block.OutputPort(1).DatatypeID = 0; 
     
-    % Output 2: Current Position (6 elements)
     block.OutputPort(2).Dimensions = 6;
     block.OutputPort(2).DatatypeID = 0; 
     
-    % Output 3: Current Velocity (6 elements)
     block.OutputPort(3).Dimensions = 6;
     block.OutputPort(3).DatatypeID = 0; 
     
-    % Output 4: Target Velocity (6 elements)
     block.OutputPort(4).Dimensions = 6;
     block.OutputPort(4).DatatypeID = 0; 
     
-    % Output 5: Tau / Commanded Thrusts (6 elements)
     block.OutputPort(5).Dimensions = 6;
     block.OutputPort(5).DatatypeID = 0; 
     
-    block.SampleTimes = [0.01 0]; % 100Hz
+    block.SampleTimes = [0.01 0]; 
     
     block.RegBlockMethod('Start', @Start);
     block.RegBlockMethod('Outputs', @Outputs);
@@ -44,363 +37,192 @@ function setup(block)
 end
 
 function Start(block)
-    global sil_eskf;
-    global sil_pid;
+    global auv_state;
+    auv_state = struct();
     
-    % Initialize ESKF
-    sil_eskf = struct();
-    sil_eskf.q = [1; 0; 0; 0];
-    sil_eskf.pos = zeros(3,1);
-    sil_eskf.vel = zeros(3,1);
-    sil_eskf.ab = zeros(3,1);
-    sil_eskf.gb = zeros(3,1);
-    sil_eskf.me = zeros(3,1);
-    sil_eskf.mb = zeros(3,1);
-    sil_eskf.curr_pos = zeros(6,1);
-    sil_eskf.curr_vel = zeros(6,1);
-    sil_eskf.is_mag_init = false;
     
-    P_diag = [1e-2*ones(3,1); 1e-3*ones(3,1); 1e-1*ones(3,1); 1e-2*ones(3,1); 1e-3*ones(3,1); 1e-1*ones(3,1); 1e-2*ones(3,1)];
-    sil_eskf.P = diag(P_diag);
+    auv_state.q = [1; 0; 0; 0];
+    auv_state.pos = zeros(3,1);
+    auv_state.vel = zeros(3,1); 
     
-    sil_eskf.Q = diag([1e-6*ones(3,1); 1e-7*ones(3,1); 1e-4*ones(3,1); 1e-7*ones(3,1); 1e-7*ones(3,1); 1e-7*ones(3,1); 1e-7*ones(3,1)]);
-    sil_eskf.R_mag = diag([0.05, 0.05, 0.05]);
-    sil_eskf.R_baro = 0.1;
     
-    % Initialize PID
-    sil_pid = struct();
-    sil_pid.target_vel = zeros(6,1);
+    auv_state.integrals = zeros(6,1);
+    auv_state.prev_err = zeros(6,1);
     
-    sil_pid.integrals_vel = zeros(6,1);
-    sil_pid.pwms = 1500 * ones(8,1);
-    sil_pid.tau = zeros(6,1);
     
-    % Kp, Ki, Kd
-    sil_pid.Kp_vel = [12.0, 12.0, 18.0, 0.0, 0.0, 8.0];
-    sil_pid.Ki_vel = [1.0, 1.0, 5.0, 0.0, 0.0, 0.2];
-    sil_pid.Kd_vel = [0.01, 0.01, 0.01, 0.0, 0.0, 0.01];
-                  
-    sil_pid.tam = [
-      0.3536   0.3536  -0.0000   0.0000   0.0000   0.5051 ;
-      0.3536  -0.3536   0.0000  -0.0000   0.0000  -0.5051 ;
-     -0.3536   0.3536  -0.0000   0.0000   0.0000  -0.5051 ;
-     -0.3536  -0.3536   0.0000  -0.0000   0.0000   0.5051 ;
-      0.0000   0.0000   0.2500  -1.2500  -1.0000  -0.0000 ;
-      0.0000   0.0000   0.2500   1.2500  -1.0000  -0.0000 ;
-      0.0000   0.0000   0.2500  -1.2500   1.0000  -0.0000 ;
-      0.0000   0.0000   0.2500   1.2500   1.0000  -0.0000 ;
+    auv_state.pwms = 1500 * ones(8,1);
+    auv_state.target_vel = zeros(6,1);
+    auv_state.smooth_target = zeros(6,1); 
+    auv_state.tau = zeros(6,1);
+    
+    
+    auv_state.Kp = [1.5, 1.5, 8.0, 0.5, 0.5, 0.8]; 
+    auv_state.Ki = [0.0, 0.0, 15.0, 1.5, 1.5, 0.0];
+    auv_state.Kd = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+    
+    
+    auv_state.tam = [
+      0.3536  -0.3536   0.0000   0.0000   0.0000  -0.9270 ;
+      0.3536   0.3536   0.0000   0.0000   0.0000   0.9270 ;
+     -0.3536  -0.3536   0.0000   0.0000   0.0000   0.9270 ;
+     -0.3536   0.3536   0.0000   0.0000   0.0000  -0.9270 ;
+      0.0000   0.0000   0.2500   3.2258  -1.2821   0.0000 ;
+      0.0000   0.0000   0.2500  -3.2258  -1.2821   0.0000 ;
+      0.0000   0.0000   0.2500   3.2258   1.2821   0.0000 ;
+      0.0000   0.0000   0.2500  -3.2258   1.2821   0.0000 ;
     ];
 end
 
 function Outputs(block)
-    global sil_eskf;
-    global sil_pid;
+    global auv_state;
+    block.OutputPort(1).Data = double(auv_state.pwms);
     
-    % Break Algebraic Loop: Outputs only depend on previously stored state
-    block.OutputPort(1).Data = double(sil_pid.pwms);
-    block.OutputPort(2).Data = double(sil_eskf.curr_pos);
-    block.OutputPort(3).Data = double(sil_eskf.curr_vel);
-    block.OutputPort(4).Data = double(sil_pid.target_vel);
-    block.OutputPort(5).Data = double(sil_pid.tau);
-end
-
-function Update(block)
-    global sil_eskf;
-    global sil_pid;
-    
-    dt = 0.01;
-    
-    % --- 1. Commands ---
-    % UDP Receive gives 4x1 vector: [X, Y, Z, Yaw]
-    udp_in = double(block.InputPort(2).Data);
-    
-    % Map to [Surge, Sway, Heave, Roll, Pitch, Yaw]
-    % Note: Roll and Pitch are forced to 0.
-    sil_pid.target_vel = [udp_in(1); udp_in(2); udp_in(3); 0; 0; udp_in(4)];
-    
-    % --- 2. Sensors ---
-    sensors = double(block.InputPort(1).Data);
-    
-    % The AUV Dynamics and our ESKF both use SAE J670 NED (X-forward, Y-right, Z-down).
-    % The raw sensor bus is already in NED! No axis inversion is needed.
-    
-    acc = sensors(1:3) - sil_eskf.ab;
-    gyro = sensors(4:6) - sil_eskf.gb;
-    mag = sensors(7:9);
-    
-    if ~sil_eskf.is_mag_init
-        % Automatically adopt whatever units/strength the physics engine uses!
-        sil_eskf.me = mag;
-        sil_eskf.is_mag_init = true;
-    end
-    
-    depth = sensors(10);
-    
-    % --- 3. ESKF RK4 Nominal Update ---
-    x = [sil_eskf.q; sil_eskf.pos; sil_eskf.vel];
-    
-    k1 = get_derivative(x, acc, gyro);
-    xt = x + 0.5 * dt * k1;
-    k2 = get_derivative(xt, acc, gyro);
-    xt = x + 0.5 * dt * k2;
-    k3 = get_derivative(xt, acc, gyro);
-    xt = x + dt * k3;
-    k4 = get_derivative(xt, acc, gyro);
-    
-    x = x + (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4);
-    
-    q_norm = norm(x(1:4));
-    if q_norm > 1e-12
-        x(1:4) = x(1:4) / q_norm;
-    end
-    
-    sil_eskf.q = x(1:4);
-    sil_eskf.pos = x(5:7);
-    sil_eskf.vel = x(8:10);
-    
-    % --- 4. ESKF Covariance Predict ---
-    R = quat2rotm(sil_eskf.q);
-    F = eye(21);
-    
-    F(1, 2) = gyro(3) * dt;
-    F(1, 3) = -gyro(2) * dt;
-    F(2, 1) = -gyro(3) * dt;
-    F(2, 3) = gyro(1) * dt;
-    F(3, 1) = gyro(2) * dt;
-    F(3, 2) = -gyro(1) * dt;
-    
-    F(1:3, 13:15) = -eye(3) * dt;
-    F(4:6, 7:9) = eye(3) * dt;
-    
-    ax = acc(1)*dt; ay = acc(2)*dt; az = acc(3)*dt;
-    F(7, 1) = -(R(1,2)*az - R(1,3)*ay);
-    F(7, 2) = -(R(1,3)*ax - R(1,1)*az);
-    F(7, 3) = -(R(1,1)*ay - R(1,2)*ax);
-    F(8, 1) = -(R(2,2)*az - R(2,3)*ay);
-    F(8, 2) = -(R(2,3)*ax - R(2,1)*az);
-    F(8, 3) = -(R(2,1)*ay - R(2,2)*ax);
-    F(9, 1) = -(R(3,2)*az - R(3,3)*ay);
-    F(9, 2) = -(R(3,3)*ax - R(3,1)*az);
-    F(9, 3) = -(R(3,1)*ay - R(3,2)*ax);
-    
-    F(7:9, 10:12) = -R * dt;
-    
-    sil_eskf.P = F * sil_eskf.P * F' + sil_eskf.Q * (dt * dt);
-    
-    % --- 5. ESKF Mag Update ---
-    m_hat = R * sil_eskf.me + sil_eskf.mb;
-    mx = m_hat(1) - sil_eskf.mb(1);
-    my = m_hat(2) - sil_eskf.mb(2);
-    mz = m_hat(3) - sil_eskf.mb(3);
-    
-    H = zeros(3, 21);
-    H(1, 2) = -mz; H(1, 3) = my;
-    H(2, 1) = mz; H(2, 3) = -mx;
-    H(3, 1) = -my; H(3, 2) = mx;
-    H(1:3, 16:18) = R;
-    H(1:3, 19:21) = eye(3);
-    
-    y_mag = mag - m_hat;
-    S = H * sil_eskf.P * H' + sil_eskf.R_mag;
-    K = sil_eskf.P * H' / S;
-    dx = K * y_mag;
-    sil_eskf.P = (eye(21) - K * H) * sil_eskf.P;
-    inject_error(dx);
-    
-    % --- 6. ESKF Baro Update ---
-    H_baro = zeros(1, 21);
-    H_baro(6) = 1;
-    y_baro = depth - sil_eskf.pos(3);
-    S_baro = H_baro * sil_eskf.P * H_baro' + sil_eskf.R_baro;
-    K_baro = sil_eskf.P * H_baro' / S_baro;
-    dx_baro = K_baro * y_baro;
-    dx_baro = zeros(21, 1); % DISABLED BARO INJECTION
-    sil_eskf.P = (eye(21) - K_baro * H_baro) * sil_eskf.P;
-    inject_error(dx_baro);
-    
-    % --- 7. PID Controller ---
-    q0 = sil_eskf.q(1); q1 = sil_eskf.q(2); q2 = sil_eskf.q(3); q3 = sil_eskf.q(4);
+    q0 = auv_state.q(1); q1 = auv_state.q(2); q2 = auv_state.q(3); q3 = auv_state.q(4);
     roll = atan2(2*(q0*q1 + q2*q3), 1 - 2*(q1^2 + q2^2));
     pitch = asin(2*(q0*q2 - q3*q1));
     yaw = atan2(2*(q0*q3 + q1*q2), 1 - 2*(q2^2 + q3^2));
     
-    % DVL gives us perfect velocity! No more IMU drift!
-    % If DVL is Body Frame:
-    v_body = sensors(11:13);
+    curr_pos = [auv_state.pos; roll; pitch; yaw];
+    block.OutputPort(2).Data = double(curr_pos);
     
-    % If DVL is Earth Frame, uncomment this instead:
-    % R_curr = quat2rotm(sil_eskf.q);
-    % v_body = R_curr' * sensors(11:13);
+    curr_vel = [auv_state.vel; 0; 0; 0];
+    block.OutputPort(3).Data = double(curr_vel);
+    block.OutputPort(4).Data = double(auv_state.target_vel);
+    block.OutputPort(5).Data = double(auv_state.tau);
+end
+
+function Update(block)
+    global auv_state;
+    dt = 0.01;
     
-    curr_pos = [sil_eskf.pos; roll; pitch; yaw];
-    curr_vel = [v_body; sensors(4); sensors(5); sensors(6)];
-    sil_eskf.curr_pos = curr_pos;
-    sil_eskf.curr_vel = curr_vel;
+    
+    udp_in = double(block.InputPort(2).Data);
+    auv_state.target_vel = [udp_in(1); udp_in(2); udp_in(3); 0; 0; udp_in(4)];
+    
+    
+    sensors = double(block.InputPort(1).Data);
+    acc = sensors(1:3);
+    gyro = sensors(4:6);
+    mag = sensors(7:9);
+    depth = sensors(10);
+    dvl_raw = sensors(11:13);
+    
+    
+    
+    q = auv_state.q;
+    w = gyro;
+    dq = [1; 0.5*w(1)*dt; 0.5*w(2)*dt; 0.5*w(3)*dt];
+    q_new = [
+        q(1)*dq(1) - q(2)*dq(2) - q(3)*dq(3) - q(4)*dq(4);
+        q(1)*dq(2) + q(2)*dq(1) + q(3)*dq(4) - q(4)*dq(3);
+        q(1)*dq(3) - q(2)*dq(4) + q(3)*dq(1) + q(4)*dq(2);
+        q(1)*dq(4) + q(2)*dq(3) - q(3)*dq(2) + q(4)*dq(1)
+    ];
+    q_new = q_new / norm(q_new);
+    if q_new(1) < 0, q_new = -q_new; end
+    auv_state.q = q_new;
+    
+    q0 = q_new(1); q1 = q_new(2); q2 = q_new(3); q3 = q_new(4);
+    roll = atan2(2*(q0*q1 + q2*q3), 1 - 2*(q1^2 + q2^2));
+    pitch = asin(2*(q0*q2 - q3*q1));
+    yaw = atan2(2*(q0*q3 + q1*q2), 1 - 2*(q2^2 + q3^2));
+    
+    
+    alpha = 0.95; 
+    auv_state.vel = alpha * auv_state.vel + (1.0 - alpha) * dvl_raw;
+    
+    
+    R = [
+        1-2*(q2^2+q3^2), 2*(q1*q2-q0*q3),   2*(q1*q3+q0*q2);
+        2*(q1*q2+q0*q3),   1-2*(q1^2+q3^2), 2*(q2*q3-q0*q1);
+        2*(q1*q3-q0*q2),   2*(q2*q3+q0*q1),   1-2*(q1^2+q2^2)
+    ];
+    v_earth = R * auv_state.vel;
+    auv_state.pos(1) = auv_state.pos(1) + v_earth(1) * dt;
+    auv_state.pos(2) = auv_state.pos(2) + v_earth(2) * dt;
+    auv_state.pos(3) = depth;
+    
+    curr_vel_6dof = [auv_state.vel; gyro];
+    
+    
+    
+    for i = 1:6
+        if abs(auv_state.target_vel(i)) < abs(auv_state.smooth_target(i))
+            
+            auv_state.smooth_target(i) = 0.5 * auv_state.smooth_target(i) + 0.5 * auv_state.target_vel(i);
+        else
+            
+            auv_state.smooth_target(i) = 0.98 * auv_state.smooth_target(i) + 0.02 * auv_state.target_vel(i); 
+        end
+    end
+    
     
     tau = zeros(6,1);
+    
+    
+    tau_max = [13.0, 13.0, 18.0, 1.5, 3.5, 5.0];
+    
     for i = 1:6
-        vel_err = sil_pid.target_vel(i) - curr_vel(i);
+        desired_vel = auv_state.smooth_target(i);
         
-        % Deadband against DVL/IMU noise
-        if abs(vel_err) < 0.03
-            vel_err = 0;
-            
-            % If we want to completely stop, bleed off any "trapped" integral thrust!
-            % We skip Heave (i=3) because it MUST hold its integral to fight positive buoyancy.
-            if sil_pid.target_vel(i) == 0 && i ~= 3
-                sil_pid.integrals_vel(i) = sil_pid.integrals_vel(i) * 0.95;
-            end
+        if i == 4
+            pos_err = 0 - roll;
+            if abs(pos_err) < 0.035, pos_err = 0; end
+            desired_vel = 0.5 * pos_err;
+        elseif i == 5
+            pos_err = 0 - pitch;
+            if abs(pos_err) < 0.035, pos_err = 0; end
+            desired_vel = 0.5 * pos_err;
         end
         
-        % Prevent Integral Windup
-        sil_pid.integrals_vel(i) = sil_pid.integrals_vel(i) + vel_err * dt;
+        vel_err = desired_vel - curr_vel_6dof(i);
         
-        max_i = 20.0;
-        if i == 3
-            max_i = 45.0; % Heave needs ~39 to fight 1kg buoyancy, no need to wind up to 80
-        elseif i == 6
-            max_i = 5.0;  % Yaw only fights rotational drag, keep windup tiny
+        
+        
+        
+        if abs(auv_state.target_vel(i)) < 0.1
+            auv_state.integrals(i) = auv_state.integrals(i) + vel_err * dt;
         end
         
-        i_term = sil_pid.Ki_vel(i) * sil_pid.integrals_vel(i);
-        if i_term > max_i
-            i_term = max_i;
-            sil_pid.integrals_vel(i) = max_i / sil_pid.Ki_vel(i);
-        elseif i_term < -max_i
-            i_term = -max_i;
-            sil_pid.integrals_vel(i) = -max_i / sil_pid.Ki_vel(i);
+        i_term = auv_state.Ki(i) * auv_state.integrals(i);
+        
+        
+        if i_term > tau_max(i)
+            i_term = tau_max(i);
+            if auv_state.Ki(i) ~= 0, auv_state.integrals(i) = tau_max(i) / auv_state.Ki(i); end
+        elseif i_term < -tau_max(i)
+            i_term = -tau_max(i);
+            if auv_state.Ki(i) ~= 0, auv_state.integrals(i) = -tau_max(i) / auv_state.Ki(i); end
         end
         
-        out = sil_pid.Kp_vel(i) * vel_err + i_term;
+        d_term = auv_state.Kd(i) * (vel_err - auv_state.prev_err(i)) / dt;
+        auv_state.prev_err(i) = vel_err;
         
-        % Cap total output
-        if out > 200.0, out = 200.0; end
-        if out < -200.0, out = -200.0; end
+        out = auv_state.Kp(i) * vel_err + i_term + d_term;
+        
+        
+        if out > tau_max(i), out = tau_max(i); end
+        if out < -tau_max(i), out = -tau_max(i); end
         
         tau(i) = out;
     end
+    auv_state.tau = tau;
     
-    % --- 8. Thruster Allocation ---
-    thrusters_force = sil_pid.tam * tau;
     
-    % Desaturate
-    for i = 0:1
-        forces = thrusters_force((i*4 + 1):(i*4 + 4));
-        max_frac = 1.0;
-        for j = 1:4
-            f = forces(j);
-            if f > 0.0
-                frac = f / 4.68;
-            else
-                frac = f / -3.52;
-            end
-            if frac > max_frac, max_frac = frac; end
-        end
-        if max_frac > 1.0
-            thrusters_force((i*4 + 1):(i*4 + 4)) = forces / max_frac;
-        end
-    end
+    thrusters_force = auv_state.tam * tau;
     
-    % --- 9. PWM Calc ---
-    pwms = zeros(8,1);
+    
+    pwms_arr = [1100, 1104, 1108, 1112, 1116, 1120, 1124, 1128, 1132, 1136, 1140, 1144, 1148, 1152, 1156, 1160, 1164, 1168, 1172, 1176, 1180, 1184, 1188, 1192, 1196, 1200, 1204, 1208, 1212, 1216, 1220, 1224, 1228, 1232, 1236, 1240, 1244, 1248, 1252, 1256, 1260, 1264, 1268, 1272, 1276, 1280, 1284, 1288, 1292, 1296, 1300, 1304, 1308, 1312, 1316, 1320, 1324, 1328, 1332, 1336, 1340, 1344, 1348, 1352, 1356, 1360, 1364, 1368, 1372, 1376, 1380, 1384, 1388, 1392, 1396, 1400, 1404, 1408, 1412, 1416, 1420, 1424, 1428, 1432, 1436, 1440, 1444, 1448, 1452, 1456, 1460, 1464, 1476, 1500, 1524, 1536, 1540, 1544, 1548, 1552, 1556, 1560, 1564, 1568, 1572, 1576, 1580, 1584, 1588, 1592, 1596, 1600, 1604, 1608, 1612, 1616, 1620, 1624, 1628, 1632, 1636, 1640, 1644, 1648, 1652, 1656, 1660, 1664, 1668, 1672, 1676, 1680, 1684, 1688, 1692, 1696, 1700, 1704, 1708, 1712, 1716, 1720, 1724, 1728, 1732, 1736, 1740, 1744, 1748, 1752, 1756, 1760, 1764, 1768, 1772, 1776, 1780, 1784, 1788, 1792, 1796, 1800, 1804, 1808, 1812, 1816, 1820, 1824, 1828, 1832, 1836, 1840, 1844, 1848, 1852, 1856, 1860, 1864, 1868, 1872, 1876, 1880, 1884, 1888, 1892, 1896];
+    forces_arr = [-3.52, -3.5, -3.49, -3.45, -3.4, -3.36, -3.29, -3.25, -3.19, -3.14, -3.1, -3.06, -3.0, -2.94, -2.88, -2.85, -2.78, -2.76, -2.69, -2.64, -2.59, -2.53, -2.49, -2.45, -2.41, -2.35, -2.34, -2.26, -2.2, -2.18, -2.12, -2.05, -2.03, -1.99, -1.91, -1.89, -1.82, -1.76, -1.72, -1.68, -1.63, -1.58, -1.56, -1.52, -1.48, -1.44, -1.4, -1.37, -1.32, -1.28, -1.24, -1.19, -1.17, -1.12, -1.09, -1.05, -1.02, -0.98, -0.95, -0.92, -0.88, -0.85, -0.81, -0.77, -0.74, -0.7, -0.68, -0.65, -0.62, -0.59, -0.55, -0.52, -0.49, -0.46, -0.43, -0.4, -0.37, -0.35, -0.32, -0.29, -0.26, -0.24, -0.21, -0.19, -0.16, -0.15, -0.12, -0.1, -0.08, -0.07, -0.05, -0.03, -0.001, 0.0, 0.001, 0.05, 0.06, 0.08, 0.1, 0.12, 0.15, 0.18, 0.2, 0.23, 0.26, 0.29, 0.33, 0.36, 0.39, 0.43, 0.46, 0.5, 0.53, 0.58, 0.62, 0.64, 0.69, 0.73, 0.77, 0.83, 0.85, 0.89, 0.92, 0.97, 1.0, 1.05, 1.09, 1.14, 1.2, 1.23, 1.28, 1.32, 1.37, 1.41, 1.46, 1.51, 1.55, 1.61, 1.65, 1.71, 1.76, 1.81, 1.85, 1.91, 1.96, 2.0, 2.09, 2.12, 2.16, 2.25, 2.27, 2.34, 2.43, 2.5, 2.56, 2.64, 2.66, 2.76, 2.78, 2.88, 2.93, 2.99, 3.05, 3.13, 3.19, 3.23, 3.32, 3.36, 3.42, 3.49, 3.57, 3.62, 3.69, 3.77, 3.84, 3.92, 3.98, 4.03, 4.11, 4.15, 4.21, 4.3, 4.38, 4.42, 4.51, 4.53];
+    
     for i = 1:8
         f = thrusters_force(i);
-        if f == 0
-            pwms(i) = 1500;
-        elseif f > 0
-            fwd_th = [0.0, 0.73, 1.13, 1.69, 2.54, 3.15, 3.76, 4.43, 4.68];
-            fwd_pwm = [1525, 1650, 1700, 1750, 1800, 1850, 1900, 1950, 2000];
-            if f >= 4.68
-                pwms(i) = 2000;
-            else
-                for k = 1:8
-                    if f >= fwd_th(k) && f <= fwd_th(k+1)
-                        ratio = (f - fwd_th(k)) / (fwd_th(k+1) - fwd_th(k));
-                        pwms(i) = fwd_pwm(k) + ratio * (fwd_pwm(k+1) - fwd_pwm(k));
-                        break;
-                    end
-                end
-            end
+        if f > 4.53
+            auv_state.pwms(i) = 1900;
+        elseif f < -3.52
+            auv_state.pwms(i) = 1100;
         else
-            rev_th = [0.0, -0.74, -1.05, -1.37, -1.86, -2.11, -2.75, -3.06, -3.52];
-            rev_pwm = [1475, 1350, 1300, 1250, 1200, 1150, 1100, 1050, 1000];
-            if f <= -3.52
-                pwms(i) = 1000;
-            else
-                for k = 1:8
-                    if f <= rev_th(k) && f >= rev_th(k+1)
-                        ratio = (f - rev_th(k)) / (rev_th(k+1) - rev_th(k));
-                        pwms(i) = rev_pwm(k) + ratio * (rev_pwm(k+1) - rev_pwm(k));
-                        break;
-                    end
-                end
-            end
+            auv_state.pwms(i) = interp1(forces_arr, pwms_arr, f, 'linear');
         end
     end
-    
-    sil_pid.tau = tau;
-    sil_pid.pwms = pwms;
-end
-
-function ddt = get_derivative(x, a, w)
-    q = x(1:4);
-    v = x(8:10);
-    
-    ddt = zeros(10,1);
-    ddt(1) = 0.5 * (-q(2)*w(1) - q(3)*w(2) - q(4)*w(3));
-    ddt(2) = 0.5 * ( q(1)*w(1) + q(3)*w(3) - q(4)*w(2));
-    ddt(3) = 0.5 * ( q(1)*w(2) - q(2)*w(3) + q(4)*w(1));
-    ddt(4) = 0.5 * ( q(1)*w(3) + q(2)*w(2) - q(3)*w(1));
-    
-    ddt(5) = v(1);
-    ddt(6) = v(2);
-    ddt(7) = v(3);
-    
-    qw=q(1); qx=q(2); qy=q(3); qz=q(4);
-    R0 = 1-2*(qy*qy+qz*qz); R1 = 2*(qx*qy-qw*qz);   R2 = 2*(qx*qz+qw*qy);
-    R3 = 2*(qx*qy+qw*qz);   R4 = 1-2*(qx*qx+qz*qz); R5 = 2*(qy*qz-qw*qx);
-    R6 = 2*(qx*qz-qw*qy);   R7 = 2*(qy*qz+qw*qx);   R8 = 1-2*(qx*qx+qy*qy);
-    
-    ddt(8) = R0*a(1) + R1*a(2) + R2*a(3);
-    ddt(9) = R3*a(1) + R4*a(2) + R5*a(3);
-    ddt(10) = R6*a(1) + R7*a(2) + R8*a(3) + 9.80665;
-end
-
-function R = quat2rotm(q)
-    qw=q(1); qx=q(2); qy=q(3); qz=q(4);
-    R = [
-        1-2*(qy*qy+qz*qz), 2*(qx*qy-qw*qz),   2*(qx*qz+qw*qy);
-        2*(qx*qy+qw*qz),   1-2*(qx*qx+qz*qz), 2*(qy*qz-qw*qx);
-        2*(qx*qz-qw*qy),   2*(qy*qz+qw*qx),   1-2*(qx*qx+qy*qy)
-    ];
-end
-
-function inject_error(dx)
-    global sil_eskf;
-    sil_eskf.pos = sil_eskf.pos + dx(4:6);
-    sil_eskf.vel = sil_eskf.vel + dx(7:9);
-    sil_eskf.ab  = sil_eskf.ab  + dx(10:12);
-    sil_eskf.gb  = sil_eskf.gb  + dx(13:15);
-    sil_eskf.me  = sil_eskf.me  + dx(16:18);
-    sil_eskf.mb  = sil_eskf.mb  + dx(19:21);
-    
-    dq = [1; 0.5*dx(1); 0.5*dx(2); 0.5*dx(3)];
-    
-    q1 = sil_eskf.q;
-    q2 = dq;
-    q_new = [
-        q1(1)*q2(1) - q1(2)*q2(2) - q1(3)*q2(3) - q1(4)*q2(4);
-        q1(1)*q2(2) + q1(2)*q2(1) + q1(3)*q2(4) - q1(4)*q2(3);
-        q1(1)*q2(3) - q1(2)*q2(4) + q1(3)*q2(1) + q1(4)*q2(2);
-        q1(1)*q2(4) + q1(2)*q2(3) - q1(3)*q2(2) + q1(4)*q2(1)
-    ];
-    
-    q_norm = norm(q_new);
-    if q_norm > 1e-12
-        q_new = q_new / q_norm;
-    end
-    if q_new(1) < 0
-        q_new = -q_new;
-    end
-    sil_eskf.q = q_new;
 end

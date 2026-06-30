@@ -1,3 +1,7 @@
 slprj/
 *.slxc
 *.autosave
+extract_pdf.py
+pdf_output_utf8.txt
+pdf_output.txt
+thruster.csv
